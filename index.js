@@ -122,48 +122,49 @@ client.on('messageCreate', async (message) => {
   lastActive[message.author.id] = Date.now();
   fs.writeFileSync(activeFile, JSON.stringify(lastActive));
 
-  if (message.content.startsWith(config.prefix)) {
+  if (message.content.startsWith(config.prefix) && message.channel.type !== 'DM') {
     const args = message.content.slice(config.prefix.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
     switch (command) {
-      case 'ping':
-        const pingEmbed = new EmbedBuilder()
-          .setTitle('🏓 Bot Status')
-          .setDescription('The bot is operational and functioning correctly.')
-          .setColor(0x00ff00)
-          .setFooter({ text: config.name })
-          .setTimestamp();
-        message.reply({ embeds: [pingEmbed] });
-        break;
+
       case 'wallet':
+      case 'w':
         await handleWallet(message, args);
         break;
       case 'help':
+      case 'h':
         handleHelp(message);
         break;
       case 'giveaway':
+      case 'give':
         await handleGiveaway(message, args);
         break;
       case 'rain':
+      case 'r':
         await handleRain(message, args);
         break;
       case 'balance':
+      case 'b':
         await handleBalance(message, args);
         break;
       case 'currencies':
+      case 'c':
         handleCurrencies(message);
         break;
       case 'airdrop':
+      case 'a':
         await handleAirdrop(message, args);
         break;
       case 'tip':
+      case 't':
         await handleTip(message, args);
         break;
       case 'history':
         handleHistory(message);
         break;
       case 'settings':
+      case 's':
         await handleSettings(message, args, client);
         break;
       case 'restart':
@@ -196,7 +197,7 @@ client.on('interactionCreate', async (interaction) => {
       if (category === 'wallet') {
         title = '📋 Help - Wallet Commands';
         fields = [
-          { name: `${config.prefix}wallet <chain>`, value: 'Generate or view your wallet address (bsc, solana, polygon, eth)', inline: false },
+          { name: `${config.prefix}wallet <bsc|solana>`, value: 'Generate or view your wallet address', inline: false },
           { name: `${config.prefix}balance <chain|all|nonzero>`, value: 'Check wallet balances', inline: false },
           { name: `${config.prefix}currencies`, value: 'List supported currencies', inline: false }
         ];
@@ -209,20 +210,19 @@ client.on('interactionCreate', async (interaction) => {
         }
         title = '📋 Help - Admin Commands';
         fields = [
-          { name: `${config.prefix}giveaway <chain> <amount>`, value: 'Start a giveaway to distribute tokens (all chains)', inline: false },
-          { name: `${config.prefix}rain <chain> <totalAmount> [numRecipients]`, value: 'Distribute tokens randomly to users', inline: false },
-          { name: `${config.prefix}airdrop <chain> <amount> <numUsers> <seconds>`, value: 'Schedule airdrop after X seconds to active users', inline: false }
+          { name: `${config.prefix}giveaway (${config.prefix}give) <chain> <amount>`, value: 'Start a giveaway to distribute tokens', inline: false },
+          { name: `${config.prefix}rain (${config.prefix}r) <random|active> <chain> <totalAmount> [numRecipients]`, value: 'Distribute tokens randomly or to active users', inline: false },
+          { name: `${config.prefix}airdrop (${config.prefix}a) <random|role @role> <chain> <amount> [numUsers] <seconds>`, value: 'Schedule airdrop after X seconds to active users or role', inline: false },
+          { name: `${config.prefix}tip (${config.prefix}t) <@user|all|role @role> <amount> <chain>`, value: 'Send tokens to user, all, or role', inline: false }
         ];
         if (isOwner) {
-          fields.push({ name: `${config.prefix}settings`, value: 'Open bot configuration', inline: false });
+          fields.push({ name: `${config.prefix}settings (${config.prefix}s)`, value: 'Open bot configuration', inline: false });
         }
         page = '2/3';
       } else if (category === 'info') {
         title = '📋 Help - Info Commands';
         fields = [
-          { name: `${config.prefix}tip @user <amount> <chain>`, value: 'Send tokens to another user (bsc, polygon, eth, solana)', inline: false },
-          { name: `${config.prefix}history`, value: 'View your transaction history', inline: false },
-          { name: `${config.prefix}ping`, value: 'Check bot status', inline: false }
+          { name: `${config.prefix}history`, value: 'View your transaction history', inline: false }
         ];
         page = `${isAdmin ? 3 : 2}/${isAdmin ? 3 : 2}`;
       }
@@ -377,12 +377,21 @@ client.on('interactionCreate', async (interaction) => {
 async function handleWallet(message, args) {
   const userId = message.author.id;
   const username = message.author.username;
-  const chain = args[0]?.toLowerCase();
+  const currency = args[0]?.toLowerCase();
+
+  const currencies = {
+    bnb: 'bsc',
+    sol: 'solana',
+    matic: 'polygon',
+    eth: 'eth'
+  };
+
+  const chain = currencies[currency];
 
   if (!chain) {
     const embed = new EmbedBuilder()
-      .setTitle('❓ Specify Blockchain')
-      .setDescription(`Please specify a blockchain: ${config.prefix}wallet bsc, solana, polygon, eth`)
+      .setTitle('❓ Specify Currency')
+      .setDescription(`Please specify a currency: ${config.prefix}wallet bnb, sol, matic, eth`)
       .setColor(0xffa500)
       .setFooter({ text: config.name })
       .setTimestamp();
@@ -403,14 +412,6 @@ async function handleWallet(message, args) {
         }
         address = wallets[userId].bsc.address;
         break;
-      case 'solana':
-        if (!wallets[userId].solana) {
-          const keypair = Keypair.generate();
-          wallets[userId].solana = { publicKey: keypair.publicKey.toString(), secretKey: Array.from(keypair.secretKey) };
-          saveWallets();
-        }
-        address = wallets[userId].solana.publicKey;
-        break;
       case 'polygon':
         if (!wallets[userId].polygon) {
           const account = web3Polygon.eth.accounts.create();
@@ -427,19 +428,18 @@ async function handleWallet(message, args) {
         }
         address = wallets[userId].eth.address;
         break;
-      default:
-        const embed = new EmbedBuilder()
-          .setTitle('❌ Unsupported Blockchain')
-          .setDescription('Supported options: bsc, solana, polygon, eth.')
-          .setColor(0xff0000)
-          .setFooter({ text: config.name })
-          .setTimestamp();
-        message.reply({ embeds: [embed] });
-        return;
+      case 'solana':
+        if (!wallets[userId].solana) {
+          const keypair = Keypair.generate();
+          wallets[userId].solana = { publicKey: keypair.publicKey.toString(), secretKey: Array.from(keypair.secretKey) };
+          saveWallets();
+        }
+        address = wallets[userId].solana.publicKey;
+        break;
     }
     const embed = new EmbedBuilder()
-      .setTitle(`💰 ${chain.toUpperCase()} Wallet`)
-      .setDescription(`Your ${chain.toUpperCase()} wallet address is:`)
+      .setTitle(`💰 ${currency.toUpperCase()} Wallet`)
+      .setDescription(`Your ${currency.toUpperCase()} wallet address is:`)
       .addFields({ name: 'Address', value: `\`${address}\``, inline: false })
       .setColor(0x00ff00)
       .setFooter({ text: config.name })
@@ -465,9 +465,9 @@ function handleHelp(message) {
     .setTitle('📋 Help - Wallet Commands')
     .setDescription('Select a category using the buttons below.')
     .addFields(
-      { name: `${config.prefix}wallet <bsc|solana>`, value: 'Generate or view your wallet address', inline: false },
-      { name: `${config.prefix}balance <chain|all|nonzero>`, value: 'Check wallet balances', inline: false },
-      { name: `${config.prefix}currencies`, value: 'List supported currencies', inline: false }
+      { name: `${config.prefix}wallet (${config.prefix}w) <currency>`, value: 'Generate or view your wallet address (bnb, sol, matic, eth)', inline: false },
+      { name: `${config.prefix}balance (${config.prefix}b) <chain|all|nonzero>`, value: 'Check wallet balances', inline: false },
+      { name: `${config.prefix}currencies (${config.prefix}c)`, value: 'List supported currencies', inline: false }
     )
     .setColor(0x0099ff)
     .setFooter({ text: `${config.name} - Page 1/${isAdmin ? 3 : 2}` })
@@ -528,29 +528,9 @@ async function handleGiveaway(message, args) {
   }
 
   if (!['bsc', 'polygon', 'eth', 'solana'].includes(chain)) {
-  const embed = new EmbedBuilder()
-    .setTitle('💰 Supported Currencies')
-    .setDescription('The bot supports the following blockchains:')
-    .addFields(
-      { name: 'BSC (Binance Smart Chain)', value: 'Native token: BNB', inline: false },
-      { name: 'Polygon', value: 'Native token: MATIC', inline: false },
-      { name: 'Ethereum', value: 'Native token: ETH', inline: false },
-      { name: 'Solana', value: 'Native token: SOL', inline: false }
-    )
-    .setColor(0x00ff00)
-    .setFooter({ text: config.name })
-    .setTimestamp();
-    message.reply({ embeds: [embed] });
-    return;
-  }
-
-  const senderWallet = wallets[discordId][chain];
-  const receiverWallet = wallets[targetUser.id][chain];
-
-  if (!senderWallet || !receiverWallet) {
     const embed = new EmbedBuilder()
-      .setTitle('❌ Wallet Missing')
-      .setDescription('Both users must have wallets for this chain.')
+      .setTitle('❌ Unsupported Blockchain')
+      .setDescription('Supported: bsc, polygon, eth, solana.')
       .setColor(0xff0000)
       .setFooter({ text: config.name })
       .setTimestamp();
@@ -559,40 +539,579 @@ async function handleGiveaway(message, args) {
   }
 
   try {
+    const members = await message.guild.members.fetch();
+    const users = members.filter(m => !m.user.bot && wallets[m.id]?.[chain]);
+    if (users.size === 0) {
+      const embed = new EmbedBuilder()
+        .setTitle('❌ No Eligible Users')
+        .setDescription('No eligible users with wallets in this server.')
+        .setColor(0xff0000)
+        .setFooter({ text: config.name })
+        .setTimestamp();
+      message.reply({ embeds: [embed] });
+      return;
+    }
+
+    const winner = users.random();
+    const winnerUser = db.prepare('SELECT id FROM users WHERE discord_id = ?').get(winner.id);
+    const winnerWallet = db.prepare('SELECT address FROM wallets WHERE user_id = ? AND chain = ?').get(winnerUser.id, chain);
+
     if (chain === 'bsc') {
       const tx = {
-        from: senderWallet.address,
-        to: receiverWallet.address,
+        from: botWallets.bsc.address,
+        to: winnerWallet.address,
         value: web3.utils.toWei(amount.toString(), 'ether'),
         gas: 21000,
       };
-      const signedTx = await web3.eth.accounts.signTransaction(tx, senderWallet.privateKey);
+      const signedTx = await web3.eth.accounts.signTransaction(tx, botWallets.bsc.privateKey);
       await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
     } else if (chain === 'polygon') {
       const tx = {
-        from: senderWallet.address,
-        to: receiverWallet.address,
+        from: botWallets.polygon.address,
+        to: winnerWallet.address,
         value: web3Polygon.utils.toWei(amount.toString(), 'ether'),
         gas: 21000,
       };
-      const signedTx = await web3Polygon.eth.accounts.signTransaction(tx, senderWallet.privateKey);
+      const signedTx = await web3Polygon.eth.accounts.signTransaction(tx, botWallets.polygon.privateKey);
       await web3Polygon.eth.sendSignedTransaction(signedTx.rawTransaction);
     } else if (chain === 'eth') {
       const tx = {
-        from: senderWallet.address,
-        to: receiverWallet.address,
+        from: botWallets.eth.address,
+        to: winnerWallet.address,
         value: web3Eth.utils.toWei(amount.toString(), 'ether'),
         gas: 21000,
       };
-      const signedTx = await web3Eth.eth.accounts.signTransaction(tx, senderWallet.privateKey);
+      const signedTx = await web3Eth.eth.accounts.signTransaction(tx, botWallets.eth.privateKey);
       await web3Eth.eth.sendSignedTransaction(signedTx.rawTransaction);
     } else if (chain === 'solana') {
       // Placeholder for Solana transfer
     }
 
     const embed = new EmbedBuilder()
+      .setTitle('🎉 Giveaway Winner')
+      .setDescription(`Winner: ${winner.user.username}\nAmount: ${amount} ${chain.toUpperCase()}\nSent to winner's wallet.`)
+      .setColor(0x00ff00)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+  } catch (error) {
+    console.error(error);
+    const embed = new EmbedBuilder()
+      .setTitle('❌ Giveaway Error')
+      .setDescription('An error occurred during the giveaway. Ensure the bot wallet is funded.')
+      .setColor(0xff0000)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+  }
+}
+
+async function handleRain(message, args) {
+  if (!message.member.permissions.has('Administrator')) {
+    const embed = new EmbedBuilder()
+      .setTitle('❌ Access Denied')
+      .setDescription('Only server administrators can use rain.')
+      .setColor(0xff0000)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+    return;
+  }
+
+  const mode = args[0]?.toLowerCase();
+  const chain = args[1]?.toLowerCase();
+  const totalAmount = parseFloat(args[2]);
+  const numRecipients = parseInt(args[3]) || 5;
+
+  if (!mode || !chain || !totalAmount || isNaN(totalAmount) || !['random', 'active'].includes(mode)) {
+    const embed = new EmbedBuilder()
+      .setTitle('❓ Correct Usage')
+      .setDescription(`Usage: ${config.prefix}rain <random|active> <chain> <totalAmount> [numRecipients] (e.g., ${config.prefix}rain random bsc 0.1 3)`)
+      .setColor(0xffa500)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+    return;
+  }
+
+  if (!['bsc', 'polygon', 'eth', 'solana'].includes(chain)) {
+    const embed = new EmbedBuilder()
+      .setTitle('❌ Unsupported Blockchain')
+      .setDescription('Supported: bsc, polygon, eth, solana.')
+      .setColor(0xff0000)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+    return;
+  }
+
+  try {
+    const members = await message.guild.members.fetch();
+    let eligibleUsers = members.filter(m => !m.user.bot && wallets[m.id]?.[chain]);
+    if (eligibleUsers.size < numRecipients) {
+      const embed = new EmbedBuilder()
+        .setTitle('❌ Insufficient Users')
+        .setDescription('Not enough eligible users with wallets.')
+        .setColor(0xff0000)
+        .setFooter({ text: config.name })
+        .setTimestamp();
+      message.reply({ embeds: [embed] });
+      return;
+    }
+
+    let recipients;
+    if (mode === 'active') {
+      // Sort by last active, most recent first
+      recipients = eligibleUsers.sort((a, b) => (lastActive[b.id] || 0) - (lastActive[a.id] || 0)).first(numRecipients);
+    } else {
+      recipients = eligibleUsers.random(numRecipients);
+    }
+    const amountPerUser = totalAmount / numRecipients;
+
+    for (const recipient of recipients.values()) {
+      if (chain === 'bsc') {
+        const tx = {
+          from: botWallets.bsc.address,
+          to: wallets[recipient.id][chain].address,
+          value: web3.utils.toWei(amountPerUser.toString(), 'ether'),
+          gas: 21000,
+        };
+        const signedTx = await web3.eth.accounts.signTransaction(tx, botWallets.bsc.privateKey);
+        await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+      } else if (chain === 'polygon') {
+        const tx = {
+          from: botWallets.polygon.address,
+          to: wallets[recipient.id][chain].address,
+          value: web3Polygon.utils.toWei(amountPerUser.toString(), 'ether'),
+          gas: 21000,
+        };
+        const signedTx = await web3Polygon.eth.accounts.signTransaction(tx, botWallets.polygon.privateKey);
+        await web3Polygon.eth.sendSignedTransaction(signedTx.rawTransaction);
+      } else if (chain === 'eth') {
+        const tx = {
+          from: botWallets.eth.address,
+          to: wallets[recipient.id][chain].address,
+          value: web3Eth.utils.toWei(amountPerUser.toString(), 'ether'),
+          gas: 21000,
+        };
+        const signedTx = await web3Eth.eth.accounts.signTransaction(tx, botWallets.eth.privateKey);
+        await web3Eth.eth.sendSignedTransaction(signedTx.rawTransaction);
+      }
+    }
+
+    const recipientNames = recipients.map(r => r.user.username).join(', ');
+    const embed = new EmbedBuilder()
+      .setTitle('🌧️ Rain Distributed')
+      .setDescription(`Mode: ${mode}\nAmount per user: ${amountPerUser.toFixed(4)} ${chain.toUpperCase()}\nRecipients: ${recipientNames}`)
+      .setColor(0x00ff00)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+  } catch (error) {
+    console.error(error);
+    const embed = new EmbedBuilder()
+      .setTitle('❌ Rain Error')
+      .setDescription('An error occurred during the rain. Ensure the bot wallet is funded.')
+      .setColor(0xff0000)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+  }
+}
+
+async function handleBalance(message, args) {
+  const userId = message.author.id;
+  const option = args[0]?.toLowerCase();
+
+  if (!wallets[userId]) {
+    const embed = new EmbedBuilder()
+      .setTitle('❌ No Wallets')
+      .setDescription('You have no wallets. Generate one with !wallet <chain>')
+      .setColor(0xff0000)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+    return;
+  }
+
+  const balances = {};
+
+  try {
+    if (wallets[userId].bsc) {
+      const balanceWei = await web3.eth.getBalance(wallets[userId].bsc.address);
+      balances.bsc = web3.utils.fromWei(balanceWei, 'ether');
+    }
+    if (wallets[userId].polygon) {
+      const balanceWei = await web3Polygon.eth.getBalance(wallets[userId].polygon.address);
+      balances.polygon = web3Polygon.utils.fromWei(balanceWei, 'ether');
+    }
+    if (wallets[userId].eth) {
+      const balanceWei = await web3Eth.eth.getBalance(wallets[userId].eth.address);
+      balances.eth = web3Eth.utils.fromWei(balanceWei, 'ether');
+    }
+    if (wallets[userId].solana) {
+      const balanceLamports = await solana.getBalance(new PublicKey(wallets[userId].solana.publicKey));
+      balances.solana = balanceLamports / 1e9;
+    }
+  } catch (error) {
+    console.error(error);
+    const embed = new EmbedBuilder()
+      .setTitle('❌ Balance Check Failed')
+      .setDescription('Unable to fetch balances. Try again later.')
+      .setColor(0xff0000)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+    return;
+  }
+
+  let fields = [];
+  if (option === 'all') {
+    fields = [
+      { name: 'BSC (BNB)', value: balances.bsc ? `${parseFloat(balances.bsc).toFixed(4)} BNB` : '0 BNB', inline: true },
+      { name: 'Polygon (MATIC)', value: balances.polygon ? `${parseFloat(balances.polygon).toFixed(4)} MATIC` : '0 MATIC', inline: true },
+      { name: 'ETH', value: balances.eth ? `${parseFloat(balances.eth).toFixed(4)} ETH` : '0 ETH', inline: true },
+      { name: 'Solana (SOL)', value: balances.solana ? `${parseFloat(balances.solana).toFixed(4)} SOL` : '0 SOL', inline: true }
+    ];
+  } else if (option === 'nonzero') {
+    if (balances.bsc && parseFloat(balances.bsc) > 0) fields.push({ name: 'BSC (BNB)', value: `${parseFloat(balances.bsc).toFixed(4)} BNB`, inline: true });
+    if (balances.polygon && parseFloat(balances.polygon) > 0) fields.push({ name: 'Polygon (MATIC)', value: `${parseFloat(balances.polygon).toFixed(4)} MATIC`, inline: true });
+    if (balances.eth && parseFloat(balances.eth) > 0) fields.push({ name: 'ETH', value: `${parseFloat(balances.eth).toFixed(4)} ETH`, inline: true });
+    if (balances.solana && parseFloat(balances.solana) > 0) fields.push({ name: 'Solana (SOL)', value: `${parseFloat(balances.solana).toFixed(4)} SOL`, inline: true });
+    if (fields.length === 0) {
+      const embed = new EmbedBuilder()
+        .setTitle('📊 Balances')
+        .setDescription('No balances found.')
+        .setColor(0xffa500)
+        .setFooter({ text: config.name })
+        .setTimestamp();
+      message.reply({ embeds: [embed] });
+      return;
+    }
+  } else if (['bsc', 'polygon', 'eth', 'solana'].includes(option)) {
+    const chain = option;
+    const symbols = { bsc: 'BNB', polygon: 'MATIC', eth: 'ETH', solana: 'SOL' };
+    if (!balances[chain]) {
+      const embed = new EmbedBuilder()
+        .setTitle('❌ No Wallet')
+        .setDescription(`You have no ${chain.toUpperCase()} wallet. Generate one with ${config.prefix}wallet ${chain}`)
+        .setColor(0xff0000)
+        .setFooter({ text: config.name })
+        .setTimestamp();
+      message.reply({ embeds: [embed] });
+      return;
+    }
+    fields = [{ name: `${chain.toUpperCase()} (${symbols[chain]})`, value: `${parseFloat(balances[chain]).toFixed(4)} ${symbols[chain]}`, inline: false }];
+  } else {
+    const embed = new EmbedBuilder()
+      .setTitle('❓ Correct Usage')
+      .setDescription(`Usage: ${config.prefix}balance <chain|all|nonzero>`)
+      .setColor(0xffa500)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+    return;
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle('📊 Wallet Balances')
+    .setDescription(`Balances for ${message.author.username}`)
+    .addFields(...fields)
+    .setColor(0x00ff00)
+    .setFooter({ text: config.name })
+    .setTimestamp();
+
+  const closeRow = new ActionRowBuilder()
+    .addComponents(
+      new ButtonBuilder()
+        .setCustomId('close_message')
+        .setLabel('Close')
+        .setStyle(ButtonStyle.Danger)
+    );
+
+  message.reply({ embeds: [embed], components: [closeRow] });
+}
+
+async function handleAirdrop(message, args) {
+  if (!message.member.permissions.has('Administrator')) {
+    const embed = new EmbedBuilder()
+      .setTitle('❌ Access Denied')
+      .setDescription('Only server administrators can use airdrop.')
+      .setColor(0xff0000)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+    return;
+  }
+
+  const mode = args[0]?.toLowerCase();
+  let chain, amount, numUsers, launchTime, role;
+
+  if (mode === 'role') {
+    role = message.mentions.roles.first();
+    chain = args[2]?.toLowerCase();
+    amount = parseFloat(args[3]);
+    launchTime = parseInt(args[4]);
+    numUsers = null; // All in role
+  } else if (mode === 'random') {
+    chain = args[1]?.toLowerCase();
+    amount = parseFloat(args[2]);
+    numUsers = parseInt(args[3]);
+    launchTime = parseInt(args[4]);
+  } else {
+    const embed = new EmbedBuilder()
+      .setTitle('❓ Correct Usage')
+      .setDescription(`Usage: ${config.prefix}airdrop random <chain> <amount> <numUsers> <seconds>\nOr ${config.prefix}airdrop role @role <chain> <amount> <seconds>`)
+      .setColor(0xffa500)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+    return;
+  }
+
+  if (!chain || !amount || !launchTime || isNaN(amount) || isNaN(launchTime) || (mode === 'random' && (!numUsers || isNaN(numUsers)))) {
+    const embed = new EmbedBuilder()
+      .setTitle('❓ Correct Usage')
+      .setDescription(`Usage: ${config.prefix}airdrop random <chain> <amount> <numUsers> <seconds>\nOr ${config.prefix}airdrop role @role <chain> <amount> <seconds>`)
+      .setColor(0xffa500)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+    return;
+  }
+
+  if (!['bsc', 'polygon', 'eth', 'solana'].includes(chain)) {
+    const embed = new EmbedBuilder()
+      .setTitle('❌ Unsupported Blockchain')
+      .setDescription('Supported: bsc, polygon, eth, solana.')
+      .setColor(0xff0000)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+    return;
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle('🎁 Airdrop Scheduled')
+    .setDescription(`Airdrop scheduled for ${chain.toUpperCase()} in ${launchTime} seconds. Mode: ${mode}${role ? ` (Role: ${role.name})` : ''}. Amount: ${amount}${numUsers ? `, Recipients: ${numUsers}` : ''}.`)
+    .setColor(0x00ff00)
+    .setFooter({ text: config.name })
+    .setTimestamp();
+  await message.reply({ embeds: [embed] });
+
+  setTimeout(async () => {
+    try {
+      const members = await message.guild.members.fetch();
+      let eligibleUsers;
+
+      if (mode === 'role') {
+        eligibleUsers = members.filter(m => !m.user.bot && m.roles.cache.has(role.id) && wallets[m.id]?.[chain]);
+      } else {
+        const now = Date.now();
+        const cutoff = now - 5 * 60000;
+        const activeUsers = Object.keys(lastActive).filter(id => lastActive[id] > cutoff && wallets[id]?.[chain]);
+        if (activeUsers.length < numUsers) {
+          const channel = message.channel;
+          const failEmbed = new EmbedBuilder()
+            .setTitle('❌ Airdrop Failed')
+            .setDescription(`Only ${activeUsers.length} active users with ${chain.toUpperCase()} wallets in the last 5 minutes. Needed: ${numUsers}.`)
+            .setColor(0xff0000)
+            .setFooter({ text: config.name })
+            .setTimestamp();
+          await channel.send({ embeds: [failEmbed] });
+          return;
+        }
+        eligibleUsers = members.filter(m => activeUsers.includes(m.id));
+        eligibleUsers = eligibleUsers.random(numUsers);
+      }
+
+      if (eligibleUsers.size === 0) {
+        const channel = message.channel;
+        const failEmbed = new EmbedBuilder()
+          .setTitle('❌ Airdrop Failed')
+          .setDescription('No eligible users found.')
+          .setColor(0xff0000)
+          .setFooter({ text: config.name })
+          .setTimestamp();
+        await channel.send({ embeds: [failEmbed] });
+        return;
+      }
+
+      const recipients = eligibleUsers.map(m => ({ id: m.id, address: wallets[m.id][chain].address || wallets[m.id][chain].publicKey }));
+
+      for (const recipient of recipients) {
+        if (chain === 'bsc') {
+          const tx = {
+            from: botWallets.bsc.address,
+            to: recipient.address,
+            value: web3.utils.toWei(amount.toString(), 'ether'),
+            gas: 21000,
+          };
+          const signedTx = await web3.eth.accounts.signTransaction(tx, botWallets.bsc.privateKey);
+          await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+        } else if (chain === 'polygon') {
+          const tx = {
+            from: botWallets.polygon.address,
+            to: recipient.address,
+            value: web3Polygon.utils.toWei(amount.toString(), 'ether'),
+            gas: 21000,
+          };
+          const signedTx = await web3Polygon.eth.accounts.signTransaction(tx, botWallets.polygon.privateKey);
+          await web3Polygon.eth.sendSignedTransaction(signedTx.rawTransaction);
+        } else if (chain === 'eth') {
+          const tx = {
+            from: botWallets.eth.address,
+            to: recipient.address,
+            value: web3Eth.utils.toWei(amount.toString(), 'ether'),
+            gas: 21000,
+          };
+          const signedTx = await web3Eth.eth.accounts.signTransaction(tx, botWallets.eth.privateKey);
+          await web3Eth.eth.sendSignedTransaction(signedTx.rawTransaction);
+        }
+      }
+
+      const recipientNames = eligibleUsers.map(m => `<@${m.id}>`).join(', ');
+      const successEmbed = new EmbedBuilder()
+        .setTitle('🎁 Airdrop Completed')
+        .setDescription(`Airdropped ${amount} ${chain.toUpperCase()} to ${eligibleUsers.size} users.\nRecipients: ${recipientNames}`)
+        .setColor(0x00ff00)
+        .setFooter({ text: config.name })
+        .setTimestamp();
+      await message.channel.send({ embeds: [successEmbed] });
+    } catch (error) {
+      console.error(error);
+      const errorEmbed = new EmbedBuilder()
+        .setTitle('❌ Airdrop Failed')
+        .setDescription('An error occurred during the airdrop. Ensure the bot wallet is funded.')
+        .setColor(0xff0000)
+        .setFooter({ text: config.name })
+        .setTimestamp();
+      await message.channel.send({ embeds: [errorEmbed] });
+    }
+  }, launchTime * 1000);
+}
+
+async function handleTip(message, args) {
+  const discordId = message.author.id;
+  const mode = args[0]?.toLowerCase();
+  let targetUser, role, amount, chain;
+
+  if (mode === 'all') {
+    amount = parseFloat(args[1]);
+    chain = args[2]?.toLowerCase();
+  } else if (mode === 'role') {
+    role = message.mentions.roles.first();
+    amount = parseFloat(args[2]);
+    chain = args[3]?.toLowerCase();
+  } else {
+    targetUser = message.mentions.users.first();
+    amount = parseFloat(args[1]);
+    chain = args[2]?.toLowerCase();
+  }
+
+  if ((!targetUser && mode !== 'all' && mode !== 'role') || !amount || !chain || isNaN(amount) || amount <= 0 || (mode === 'role' && !role)) {
+    const embed = new EmbedBuilder()
+      .setTitle('❓ Correct Usage')
+      .setDescription(`Usage: ${config.prefix}tip @user <amount> <chain>\nOr ${config.prefix}tip all <amount> <chain>\nOr ${config.prefix}tip role @role <amount> <chain>`)
+      .setColor(0xffa500)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+    return;
+  }
+
+  if (targetUser && targetUser.id === discordId) {
+    const embed = new EmbedBuilder()
+      .setTitle('❌ Invalid Tip')
+      .setDescription('You cannot tip yourself.')
+      .setColor(0xff0000)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+    return;
+  }
+
+  if (!['bsc', 'polygon', 'eth', 'solana'].includes(chain)) {
+    const embed = new EmbedBuilder()
+      .setTitle('❌ Unsupported Blockchain')
+      .setDescription('Supported: bsc, polygon, eth, solana.')
+      .setColor(0xff0000)
+      .setFooter({ text: config.name })
+      .setTimestamp();
+    message.reply({ embeds: [embed] });
+    return;
+  }
+
+  try {
+    const members = await message.guild.members.fetch();
+    let recipients = [];
+
+    if (mode === 'all') {
+      recipients = members.filter(m => !m.user.bot && wallets[m.id]?.[chain] && m.id !== discordId).map(m => ({ user: m, wallet: wallets[m.id][chain] }));
+    } else if (mode === 'role') {
+      recipients = members.filter(m => !m.user.bot && m.roles.cache.has(role.id) && wallets[m.id]?.[chain] && m.id !== discordId).map(m => ({ user: m, wallet: wallets[m.id][chain] }));
+    } else {
+      recipients = [{ user: await message.guild.members.fetch(targetUser.id), wallet: wallets[targetUser.id]?.[chain] }];
+    }
+
+    if (recipients.length === 0 || (mode !== 'all' && mode !== 'role' && !recipients[0].wallet)) {
+      const embed = new EmbedBuilder()
+        .setTitle('❌ No Recipients')
+        .setDescription('No eligible recipients found.')
+        .setColor(0xff0000)
+        .setFooter({ text: config.name })
+        .setTimestamp();
+      message.reply({ embeds: [embed] });
+      return;
+    }
+
+    const senderWallet = wallets[discordId]?.[chain];
+    if (!senderWallet) {
+      const embed = new EmbedBuilder()
+        .setTitle('❌ No Wallet')
+        .setDescription('You need a wallet for this chain.')
+        .setColor(0xff0000)
+        .setFooter({ text: config.name })
+        .setTimestamp();
+      message.reply({ embeds: [embed] });
+      return;
+    }
+
+    for (const recipient of recipients) {
+      if (chain === 'bsc') {
+        const tx = {
+          from: senderWallet.address,
+          to: recipient.wallet.address,
+          value: web3.utils.toWei(amount.toString(), 'ether'),
+          gas: 21000,
+        };
+        const signedTx = await web3.eth.accounts.signTransaction(tx, senderWallet.privateKey);
+        await web3.eth.sendSignedTransaction(signedTx.rawTransaction);
+      } else if (chain === 'polygon') {
+        const tx = {
+          from: senderWallet.address,
+          to: recipient.wallet.address,
+          value: web3Polygon.utils.toWei(amount.toString(), 'ether'),
+          gas: 21000,
+        };
+        const signedTx = await web3Polygon.eth.accounts.signTransaction(tx, senderWallet.privateKey);
+        await web3Polygon.eth.sendSignedTransaction(signedTx.rawTransaction);
+      } else if (chain === 'eth') {
+        const tx = {
+          from: senderWallet.address,
+          to: recipient.wallet.address,
+          value: web3Eth.utils.toWei(amount.toString(), 'ether'),
+          gas: 21000,
+        };
+        const signedTx = await web3Eth.eth.accounts.signTransaction(tx, senderWallet.privateKey);
+        await web3Eth.eth.sendSignedTransaction(signedTx.rawTransaction);
+      }
+    }
+
+    const recipientNames = recipients.map(r => r.user.user.username).join(', ');
+    const embed = new EmbedBuilder()
       .setTitle('🎁 Tip Sent')
-      .setDescription(`Successfully tipped ${amount} ${chain.toUpperCase()} to ${targetUser.username}.`)
+      .setDescription(`Successfully tipped ${amount} ${chain.toUpperCase()} to ${recipients.length} user(s): ${recipientNames}.`)
       .setColor(0x00ff00)
       .setFooter({ text: config.name })
       .setTimestamp();
